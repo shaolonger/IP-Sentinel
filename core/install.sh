@@ -59,7 +59,7 @@ if [ ${#MISSING_CMDS[@]} -gt 0 ]; then
         # Debian / Ubuntu 系列
         apt-get update -y >/dev/null 2>&1
         # [v3.6.3 抽脂级优化] 注入 --no-install-recommends 拒绝捆绑销售，大幅节省磁盘与内存
-        apt-get install -y --no-install-recommends curl jq cron procps python3 openssl >/dev/null 2>&1
+        apt-get install -y --no-install-recommends curl jq cron procps python3 python3-venv python3-pip openssl >/dev/null 2>&1
         systemctl enable cron >/dev/null 2>&1 && systemctl start cron >/dev/null 2>&1
         
     elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
@@ -71,21 +71,21 @@ if [ ${#MISSING_CMDS[@]} -gt 0 ]; then
             # [v3.6.3 抽脂级优化] 强行关闭 DNF 的弱依赖拉取
             OPT_ARGS="--setopt=install_weak_deps=False"
         fi
-        $PKG_MGR install -y $OPT_ARGS curl jq cronie procps-ng python3 openssl >/dev/null 2>&1
+        $PKG_MGR install -y $OPT_ARGS curl jq cronie procps-ng python3 python3-pip openssl >/dev/null 2>&1
         systemctl enable crond >/dev/null 2>&1 && systemctl start crond >/dev/null 2>&1
         
     elif command -v apk >/dev/null 2>&1; then
         # Alpine 本身就是极致精简，无需特殊参数
         echo "Alpine 探测到系统类型为 Alpine Linux，正在执行轻量级安装..."
         # [修复] 新版 Alpine 已废弃 dcron。优先尝试 cronie，若失败则信任自带 busybox-cron，并移除屏蔽以便暴露报错
-        apk add --no-cache curl jq cronie procps python3 bash openssl || apk add --no-cache curl jq procps python3 bash openssl
+        apk add --no-cache curl jq cronie procps python3 py3-pip bash openssl || apk add --no-cache curl jq procps python3 py3-pip bash openssl
         mkdir -p /var/spool/cron/crontabs
         rc-update add crond default >/dev/null 2>&1
         service crond start >/dev/null 2>&1
         
     elif command -v pacman >/dev/null 2>&1; then
         # Arch Linux 系列 (采用 --needed 防重复，剥离 -y 防部分升级炸系统)
-        pacman -S --needed --noconfirm curl jq cronie procps-ng python openssl >/dev/null 2>&1
+        pacman -S --needed --noconfirm curl jq cronie procps-ng python python-pip openssl >/dev/null 2>&1
         mkdir -p /root/.cache/crontab 2>/dev/null
         systemctl enable cronie >/dev/null 2>&1 && systemctl start cronie >/dev/null 2>&1
         
@@ -93,11 +93,11 @@ if [ ${#MISSING_CMDS[@]} -gt 0 ]; then
         # 无法识别的系统：退出并给出清晰的引导信息 (同步更新防捆绑参数)
         echo -e "\033[31m❌ 自动安装失败：系统未知的包管理器。\033[0m"
         echo -e "\033[33m⚠️ 请根据您的操作系统，手动执行以下安装命令后重新运行本脚本：\033[0m"
-        echo -e "  Debian/Ubuntu: \033[36mapt-get update && apt-get install -y --no-install-recommends curl jq cron procps python3 openssl\033[0m"
-        echo -e "  CentOS/RHEL:   \033[36myum install -y curl jq cronie procps-ng python3 openssl\033[0m"
-        echo -e "  Alpine Linux:  \033[36mapk add --no-cache curl jq cronie procps python3 bash openssl\033[0m"
+        echo -e "  Debian/Ubuntu: \033[36mapt-get update && apt-get install -y --no-install-recommends curl jq cron procps python3 python3-venv python3-pip openssl\033[0m"
+        echo -e "  CentOS/RHEL:   \033[36myum install -y curl jq cronie procps-ng python3 python3-pip openssl\033[0m"
+        echo -e "  Alpine Linux:  \033[36mapk add --no-cache curl jq cronie procps python3 py3-pip bash openssl\033[0m"
         # Arch 用户，如果出问题，应该用 -Syu 进行全系统安全更新
-        echo -e "  Arch Linux:    \033[36mpacman -Syu --needed curl jq cronie procps-ng python openssl\033[0m"
+        echo -e "  Arch Linux:    \033[36mpacman -Syu --needed curl jq cronie procps-ng python python-pip openssl\033[0m"
         exit 1
     fi
     
@@ -297,7 +297,9 @@ if [ "$UPGRADE_MODE" == "false" ]; then
     mkdir -p "${INSTALL_DIR}/core"
     mkdir -p "${INSTALL_DIR}/data/keywords"
     mkdir -p "${INSTALL_DIR}/data/regions/${COUNTRY_ID}/${STATE_ID}"
+    mkdir -p "${INSTALL_DIR}/data/trust_profiles"
     mkdir -p "${INSTALL_DIR}/logs"
+    mkdir -p "${INSTALL_DIR}/state"
 
     # 3. 功能模块前置开关 (v3.5.3 默认全量加载，后续经由 TG 动态启停)
     echo -e "\n[3/7] 正在初始化养护模块 (默认全量部署，支持 TG 远程动态启停)..."
@@ -524,14 +526,19 @@ if [ "$UPGRADE_MODE" == "false" ]; then
 AGENT_VERSION="$TARGET_VERSION"
 REGION_CODE="$REGION_CODE"
 REGION_NAME="$REGION_NAME"
+TARGET_COUNTRY="$COUNTRY_ID"
+TARGET_STATE="$STATE_ID"
+TARGET_CITY="$CITY_ID"
 BASE_LAT="$BASE_LAT"
 BASE_LON="$BASE_LON"
 LANG_PARAMS="$LANG_PARAMS"
 VALID_URL_SUFFIX="$VALID_URL_SUFFIX"
+TRUST_PROFILE_FILE="${INSTALL_DIR}/data/trust_profiles/${COUNTRY_ID}-${STATE_ID}-${CITY_ID}.json"
 
 # 模块开关状态
 ENABLE_GOOGLE="$ENABLE_GOOGLE"
 ENABLE_TRUST="$ENABLE_TRUST"
+GEOANCHOR_ROLLOUT_MODE="normal"
 
 TG_TOKEN="$TG_TOKEN"
 TG_API_URL="$TG_API_URL"
@@ -539,6 +546,9 @@ CHAT_ID="$CHAT_ID"
 AGENT_PORT="$AGENT_PORT"
 INSTALL_DIR="$INSTALL_DIR"
 LOG_FILE="${INSTALL_DIR}/logs/sentinel.log"
+GEOANCHOR_VENV="${INSTALL_DIR}/venv"
+PLAYWRIGHT_BROWSERS_PATH="${INSTALL_DIR}/playwright-browsers"
+ENABLE_GEOANCHOR_BROWSER="true"
 
 # [v3.3.1修改: 双核身份剥离配置] 
 IP_PREF="$IP_PREF"
@@ -621,12 +631,37 @@ if [ "$UPGRADE_MODE" == "true" ]; then
     else
         ENABLE_OTA=$(grep "^ENABLE_OTA=" "$CONFIG_FILE" | cut -d'"' -f2)
     fi
+
+    if ! grep -q "^TARGET_COUNTRY=" "$CONFIG_FILE"; then
+        echo "TARGET_COUNTRY=\"${REGION_CODE%%-*}\"" >> "$CONFIG_FILE"
+    fi
+    if ! grep -q "^TARGET_STATE=" "$CONFIG_FILE"; then
+        echo "TARGET_STATE=\"Default\"" >> "$CONFIG_FILE"
+    fi
+    if ! grep -q "^TARGET_CITY=" "$CONFIG_FILE"; then
+        echo "TARGET_CITY=\"$(printf '%s' "${REGION_NAME##* - }" | tr ' ' '_')\"" >> "$CONFIG_FILE"
+    fi
+    if ! grep -q "^TRUST_PROFILE_FILE=" "$CONFIG_FILE"; then
+        echo "TRUST_PROFILE_FILE=\"${INSTALL_DIR}/data/trust_profiles/${TARGET_COUNTRY:-${REGION_CODE%%-*}}-${TARGET_STATE:-Default}-${TARGET_CITY:-$(printf '%s' "${REGION_NAME##* - }" | tr ' ' '_')}.json\"" >> "$CONFIG_FILE"
+    fi
+    if ! grep -q "^GEOANCHOR_ROLLOUT_MODE=" "$CONFIG_FILE"; then
+        echo "GEOANCHOR_ROLLOUT_MODE=\"normal\"" >> "$CONFIG_FILE"
+    fi
 fi
 # ========================================================================
 
 # 6. 拉取全套组件 (原子化升级，防断网变砖)
 echo -e "\n[6/7] 正在部署核心引擎与热数据..."
 mkdir -p "${INSTALL_DIR}/data/keywords"
+mkdir -p "${INSTALL_DIR}/data/trust_profiles"
+mkdir -p "${INSTALL_DIR}/state"
+
+if [ -n "${TARGET_COUNTRY:-}" ] && [ -n "${TARGET_STATE:-}" ] && [ -n "${TARGET_CITY:-}" ]; then
+    TRUST_PROFILE_REMOTE="${REPO_RAW_URL}/data/trust_profiles/${TARGET_COUNTRY}-${TARGET_STATE}-${TARGET_CITY}.json"
+    TRUST_PROFILE_LOCAL="${INSTALL_DIR}/data/trust_profiles/${TARGET_COUNTRY}-${TARGET_STATE}-${TARGET_CITY}.json"
+    curl -sL "${TRUST_PROFILE_REMOTE}" -o "${TRUST_PROFILE_LOCAL}" 2>/dev/null || true
+    [ -s "${TRUST_PROFILE_LOCAL}" ] || rm -f "${TRUST_PROFILE_LOCAL}" 2>/dev/null
+fi
 
 # [核心修复] 开辟临时下载区，确保下载 100% 成功后再替换旧核心
 TMP_CORE="${SECURE_TMP}/core_update"
@@ -634,6 +669,15 @@ mkdir -p "$TMP_CORE"
 
 # 拉取核心代码至临时区
 curl -sL "${REPO_RAW_URL}/core/runner.sh" -o "${TMP_CORE}/runner.sh"
+curl -sL "${REPO_RAW_URL}/core/preflight.sh" -o "${TMP_CORE}/preflight.sh"
+curl -sL "${REPO_RAW_URL}/core/mod_probe.sh" -o "${TMP_CORE}/mod_probe.sh"
+curl -sL "${REPO_RAW_URL}/core/mod_state.py" -o "${TMP_CORE}/mod_state.py"
+curl -sL "${REPO_RAW_URL}/core/geoanchor_control.py" -o "${TMP_CORE}/geoanchor_control.py"
+curl -sL "${REPO_RAW_URL}/core/geoanchor_rollout.py" -o "${TMP_CORE}/geoanchor_rollout.py"
+curl -sL "${REPO_RAW_URL}/core/geoanchor_rollback.sh" -o "${TMP_CORE}/geoanchor_rollback.sh"
+curl -sL "${REPO_RAW_URL}/core/mod_anchor_browser.py" -o "${TMP_CORE}/mod_anchor_browser.py"
+curl -sL "${REPO_RAW_URL}/core/mod_local_trust.py" -o "${TMP_CORE}/mod_local_trust.py"
+curl -sL "${REPO_RAW_URL}/core/runner_v2.sh" -o "${TMP_CORE}/runner_v2.sh"
 curl -sL "${REPO_RAW_URL}/core/updater.sh" -o "${TMP_CORE}/updater.sh"
 curl -sL "${REPO_RAW_URL}/core/tg_report.sh" -o "${TMP_CORE}/tg_report.sh"
 curl -sL "${REPO_RAW_URL}/core/agent_daemon.sh" -o "${TMP_CORE}/agent_daemon.sh"
@@ -643,7 +687,7 @@ curl -sL "${REPO_RAW_URL}/core/mod_trust.sh" -o "${TMP_CORE}/mod_trust.sh"
 curl -sL "${REPO_RAW_URL}/core/mod_quality.sh" -o "${TMP_CORE}/mod_quality.sh"
 
 # 🛡️ 防砖终极校验：检查关键文件是否真实存在且不为空
-if [ ! -s "${TMP_CORE}/runner.sh" ] || [ ! -s "${TMP_CORE}/agent_daemon.sh" ]; then
+if [ ! -s "${TMP_CORE}/runner.sh" ] || [ ! -s "${TMP_CORE}/runner_v2.sh" ] || [ ! -s "${TMP_CORE}/preflight.sh" ] || [ ! -s "${TMP_CORE}/mod_probe.sh" ] || [ ! -s "${TMP_CORE}/mod_state.py" ] || [ ! -s "${TMP_CORE}/geoanchor_control.py" ] || [ ! -s "${TMP_CORE}/geoanchor_rollout.py" ] || [ ! -s "${TMP_CORE}/geoanchor_rollback.sh" ] || [ ! -s "${TMP_CORE}/mod_anchor_browser.py" ] || [ ! -s "${TMP_CORE}/mod_local_trust.py" ] || [ ! -s "${TMP_CORE}/agent_daemon.sh" ]; then
     echo -e "\033[31m❌ 致命错误：核心代码拉取失败！网络阻断或 GitHub Raw 异常。\033[0m"
     echo "🛡️ 防砖机制触发：已中止覆盖，旧版哨兵引擎仍安全存活中。"
     rm -rf "$TMP_CORE"
@@ -660,6 +704,7 @@ fi
 pkill -9 -f "webhook.py" >/dev/null 2>&1 || true
 pkill -9 -f "agent_daemon.sh" >/dev/null 2>&1 || true
 pkill -9 -f "runner.sh" >/dev/null 2>&1 || true
+pkill -9 -f "runner_v2.sh" >/dev/null 2>&1 || true
 pkill -9 -f "tg_report.sh" >/dev/null 2>&1 || true
 pkill -9 -f "updater.sh" >/dev/null 2>&1 || true
 pkill -9 -f "sentinel_scheduler.sh" >/dev/null 2>&1 || true
@@ -668,6 +713,42 @@ pkill -9 -f "sentinel_scheduler.sh" >/dev/null 2>&1 || true
 rm -rf "${INSTALL_DIR}/core" 2>/dev/null
 mv "$TMP_CORE" "${INSTALL_DIR}/core"
 chmod +x ${INSTALL_DIR}/core/*.sh
+chmod +x ${INSTALL_DIR}/core/mod_state.py 2>/dev/null || true
+chmod +x ${INSTALL_DIR}/core/mod_anchor_browser.py 2>/dev/null || true
+chmod +x ${INSTALL_DIR}/core/mod_local_trust.py 2>/dev/null || true
+
+echo -e "\n[6.1/7] 正在装配 GeoAnchor 浏览器运行时 (Playwright + Chromium)..."
+GEOANCHOR_VENV="${INSTALL_DIR}/venv"
+PLAYWRIGHT_BROWSERS_PATH="${INSTALL_DIR}/playwright-browsers"
+mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" "${INSTALL_DIR}/profiles"
+
+if ! grep -q "^GEOANCHOR_VENV=" "$CONFIG_FILE"; then
+    echo "GEOANCHOR_VENV=\"${GEOANCHOR_VENV}\"" >> "$CONFIG_FILE"
+fi
+if ! grep -q "^PLAYWRIGHT_BROWSERS_PATH=" "$CONFIG_FILE"; then
+    echo "PLAYWRIGHT_BROWSERS_PATH=\"${PLAYWRIGHT_BROWSERS_PATH}\"" >> "$CONFIG_FILE"
+fi
+if ! grep -q "^ENABLE_GEOANCHOR_BROWSER=" "$CONFIG_FILE"; then
+    echo "ENABLE_GEOANCHOR_BROWSER=\"true\"" >> "$CONFIG_FILE"
+fi
+
+if ! python3 -m venv "${GEOANCHOR_VENV}" >/dev/null 2>&1; then
+    python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
+    python3 -m venv "${GEOANCHOR_VENV}" >/dev/null 2>&1 || true
+fi
+if [ ! -x "${GEOANCHOR_VENV}/bin/python" ]; then
+    echo -e "\033[31m❌ GeoAnchor 浏览器运行时初始化失败：无法创建 Python venv。\033[0m"
+    sed -i "s/^ENABLE_GEOANCHOR_BROWSER=.*/ENABLE_GEOANCHOR_BROWSER=\"false\"/" "$CONFIG_FILE"
+else
+    if "${GEOANCHOR_VENV}/bin/python" -m pip install --quiet --upgrade pip setuptools wheel >/dev/null 2>&1 && \
+       "${GEOANCHOR_VENV}/bin/python" -m pip install --quiet playwright >/dev/null 2>&1 && \
+       PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH}" "${GEOANCHOR_VENV}/bin/python" -m playwright install chromium >/dev/null 2>&1; then
+        echo -e "\033[32m✅ GeoAnchor 浏览器运行时已装配完成。\033[0m"
+    else
+        echo -e "\033[33m⚠️ GeoAnchor 浏览器运行时装配失败，已自动禁用浏览器锚定模块，请稍后修复后再启用。\033[0m"
+        sed -i "s/^ENABLE_GEOANCHOR_BROWSER=.*/ENABLE_GEOANCHOR_BROWSER=\"false\"/" "$CONFIG_FILE"
+    fi
+fi
 
 # 拉取热数据与词库
 curl -sL "${REPO_RAW_URL}/data/user_agents.txt" -o "${INSTALL_DIR}/data/user_agents.txt"
@@ -700,7 +781,7 @@ After=network.target
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 SyslogIdentifier=ip-sentinel
 Type=oneshot
-ExecStart=/bin/bash ${INSTALL_DIR}/core/runner.sh
+ExecStart=/bin/bash ${INSTALL_DIR}/core/runner_v2.sh
 User=root
 CPUSchedulingPolicy=idle
 IOSchedulingClass=idle
@@ -840,7 +921,7 @@ while true; do
     HOUR=\$(date -u +%H)
     # [频率优化] 匹配 20 分钟步进 (00, 20, 40)
     if [ "\$MIN" == "00" ] || [ "\$MIN" == "20" ] || [ "\$MIN" == "40" ]; then
-        /bin/bash /opt/ip_sentinel/core/runner.sh >/dev/null 2>&1
+        /bin/bash /opt/ip_sentinel/core/runner_v2.sh >/dev/null 2>&1
     fi
     # [绝对 UTC 锚点] 基于部署时刻的锚点触发热数据更新，天然并发削峰
     if [ "\$HOUR" == "${DEPLOY_UTC_HOUR}" ] && [ "\$MIN" == "${DEPLOY_UTC_MIN}" ]; then
@@ -878,7 +959,7 @@ EOF
             # ==========================================
             crontab -l 2>/dev/null | grep -v "ip_sentinel" > "${SECURE_TMP}/cron_backup" || true
             # [频率优化] 调整为 */20
-            echo "*/20 * * * * ${INSTALL_DIR}/core/runner.sh >/dev/null 2>&1" >> "${SECURE_TMP}/cron_backup"
+            echo "*/20 * * * * ${INSTALL_DIR}/core/runner_v2.sh >/dev/null 2>&1" >> "${SECURE_TMP}/cron_backup"
             # [绝对 UTC 锚点] 每天精确在部署的 UTC 时刻触发
             echo "${DEPLOY_UTC_MIN} ${DEPLOY_UTC_HOUR} * * * ${INSTALL_DIR}/core/updater.sh >/dev/null 2>&1" >> "${SECURE_TMP}/cron_backup"
             
