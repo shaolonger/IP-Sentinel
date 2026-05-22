@@ -20,7 +20,27 @@ SECURE_TMP=$(mktemp -d /tmp/ips_install.XXXXXX)
 trap 'rm -rf "$SECURE_TMP"' EXIT HUP INT QUIT TERM
 
 # 你的 GitHub 仓库 Raw 数据直链前缀
-REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+DEFAULT_REPO_RAW_URL="https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+DEFAULT_REPO_WEB_URL="https://github.com/shaolonger/IP-Sentinel"
+LEGACY_REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+LEGACY_REPO_WEB_URL="https://github.com/hotyue/IP-Sentinel"
+REPO_RAW_URL="${IP_SENTINEL_REPO_RAW_URL:-$DEFAULT_REPO_RAW_URL}"
+REPO_WEB_URL="${IP_SENTINEL_REPO_WEB_URL:-$DEFAULT_REPO_WEB_URL}"
+
+normalize_repo_urls() {
+    case "${REPO_RAW_URL:-}" in
+        ""|"$LEGACY_REPO_RAW_URL")
+            REPO_RAW_URL="$DEFAULT_REPO_RAW_URL"
+            ;;
+    esac
+    case "${REPO_WEB_URL:-}" in
+        ""|"$LEGACY_REPO_WEB_URL")
+            REPO_WEB_URL="$DEFAULT_REPO_WEB_URL"
+            ;;
+    esac
+}
+
+normalize_repo_urls
 
 INSTALL_DIR="/opt/ip_sentinel"
 CONFIG_FILE="${INSTALL_DIR}/config.conf"
@@ -29,7 +49,7 @@ CONFIG_FILE="${INSTALL_DIR}/config.conf"
 # [修复] 增加 -L 与双栈容灾 (-4)，解决纯 V6 或 V6 优先机器连接 GitHub Raw 易超时的问题
 TARGET_VERSION=$( (curl -sL -m 5 "${REPO_RAW_URL}/version.txt" || curl -4 -sL -m 5 "${REPO_RAW_URL}/version.txt") 2>/dev/null | grep "^AGENT_VERSION=" | cut -d'=' -f2 | tr -d '[:space:]')
 # 🛡️ 兜底防线：如果网络波动拉取失败，启用内置的安全兜底版本
-TARGET_VERSION=${TARGET_VERSION:-"4.0.6"}
+TARGET_VERSION=${TARGET_VERSION:-"4.0.11"}
 
 # 轻量级版本号比对函数 (例如: version_lt "3.3.1" "3.4.0" 返回 true)
 version_lt() {
@@ -130,6 +150,7 @@ if [ "$SILENT_OTA" == "true" ]; then
     UPGRADE_MODE="true"
     KEEP_LOGS="true"
     source "$CONFIG_FILE"
+    normalize_repo_urls
 else
     echo -e "\n请选择操作:"
     echo "  1) 🚀 部署边缘节点 (进入全球节点配置)"
@@ -164,6 +185,7 @@ else
             
             # 将原配置读入环境变量，为后续跳过配置步骤提供燃料
             source "$CONFIG_FILE"
+            normalize_repo_urls
             echo -e "\033[32m✅ 已激活 [平滑升级模式]，即将跳过基础配置，直接更新核心装甲...\033[0m"
         else
             echo -e "\033[33m🔄 您选择了重新配置，旧的哨兵数据将被彻底抹除。\033[0m"
@@ -524,9 +546,11 @@ if [ "$UPGRADE_MODE" == "false" ]; then
     cat > "$CONFIG_FILE" << EOF
 # IP-Sentinel 本地固化配置 (生成时间: $(date '+%Y-%m-%d %H:%M:%S'))
 AGENT_VERSION="$TARGET_VERSION"
-REGION_CODE="$REGION_CODE"
-REGION_NAME="$REGION_NAME"
-TARGET_COUNTRY="$COUNTRY_ID"
+    REPO_RAW_URL="$REPO_RAW_URL"
+    REPO_WEB_URL="$REPO_WEB_URL"
+    REGION_CODE="$REGION_CODE"
+    REGION_NAME="$REGION_NAME"
+    TARGET_COUNTRY="$COUNTRY_ID"
 TARGET_STATE="$STATE_ID"
 TARGET_CITY="$CITY_ID"
 BASE_LAT="$BASE_LAT"
@@ -630,6 +654,17 @@ if [ "$UPGRADE_MODE" == "true" ]; then
         ENABLE_OTA="false"
     else
         ENABLE_OTA=$(grep "^ENABLE_OTA=" "$CONFIG_FILE" | cut -d'"' -f2)
+    fi
+
+    if grep -q "^REPO_RAW_URL=" "$CONFIG_FILE"; then
+        sed -i "s#^REPO_RAW_URL=.*#REPO_RAW_URL=\"$REPO_RAW_URL\"#" "$CONFIG_FILE"
+    else
+        echo "REPO_RAW_URL=\"$REPO_RAW_URL\"" >> "$CONFIG_FILE"
+    fi
+    if grep -q "^REPO_WEB_URL=" "$CONFIG_FILE"; then
+        sed -i "s#^REPO_WEB_URL=.*#REPO_WEB_URL=\"$REPO_WEB_URL\"#" "$CONFIG_FILE"
+    else
+        echo "REPO_WEB_URL=\"$REPO_WEB_URL\"" >> "$CONFIG_FILE"
     fi
 
     if ! grep -q "^TARGET_COUNTRY=" "$CONFIG_FILE"; then
@@ -1133,5 +1168,5 @@ fi
 echo -e "\n========================================================"
 echo -e "⭐ \033[33m开源不易，如果 IP-Sentinel 提升了您的节点稳定性，请赐予我们一枚星标！\033[0m"
 echo -e "💡 \033[32m您的每一颗 Star 都是我们持续对抗风控、维护更新指纹库的核心动力。\033[0m"
-echo -e "👉 \033[36m\033[4m\033]8;;https://github.com/hotyue/IP-Sentinel\033\\点击此处直达 GitHub 仓库点亮 Star 🌟\033[0m\033]8;;\033\\"
+echo -e "👉 \033[36m\033[4m\033]8;;${REPO_WEB_URL}\033\\点击此处直达 GitHub 仓库点亮 Star 🌟\033[0m\033]8;;\033\\"
 echo -e "========================================================\n"

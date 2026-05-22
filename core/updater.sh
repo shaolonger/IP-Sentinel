@@ -10,7 +10,8 @@ CONFIG_FILE="${INSTALL_DIR}/config.conf"
 UA_TIME_FILE="${INSTALL_DIR}/core/.ua_last_update"
 
 # GitHub 仓库 Raw 数据直链前缀
-REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+DEFAULT_REPO_RAW_URL="https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+LEGACY_REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
 # 临时改为开发地址用于测试
 # REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/v3.6.2-rc"
 
@@ -19,6 +20,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 source "$CONFIG_FILE"
+
+REPO_RAW_URL="${REPO_RAW_URL:-$DEFAULT_REPO_RAW_URL}"
+[ "$REPO_RAW_URL" = "$LEGACY_REPO_RAW_URL" ] && REPO_RAW_URL="$DEFAULT_REPO_RAW_URL"
 
 # 2. 全局日志写入函数 (v3.4.0 引入版本探针)
 log() {

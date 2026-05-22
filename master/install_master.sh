@@ -19,7 +19,27 @@ SECURE_TMP=$(mktemp -d /tmp/ips_master_install.XXXXXX)
 trap 'rm -rf "$SECURE_TMP"' EXIT HUP INT QUIT TERM
 
 # 你的 GitHub 仓库 Raw 数据直链前缀
-REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+DEFAULT_REPO_RAW_URL="https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+DEFAULT_REPO_WEB_URL="https://github.com/shaolonger/IP-Sentinel"
+LEGACY_REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+LEGACY_REPO_WEB_URL="https://github.com/hotyue/IP-Sentinel"
+REPO_RAW_URL="${IP_SENTINEL_REPO_RAW_URL:-$DEFAULT_REPO_RAW_URL}"
+REPO_WEB_URL="${IP_SENTINEL_REPO_WEB_URL:-$DEFAULT_REPO_WEB_URL}"
+
+normalize_repo_urls() {
+    case "${REPO_RAW_URL:-}" in
+        ""|"$LEGACY_REPO_RAW_URL")
+            REPO_RAW_URL="$DEFAULT_REPO_RAW_URL"
+            ;;
+    esac
+    case "${REPO_WEB_URL:-}" in
+        ""|"$LEGACY_REPO_WEB_URL")
+            REPO_WEB_URL="$DEFAULT_REPO_WEB_URL"
+            ;;
+    esac
+}
+
+normalize_repo_urls
 # 临时改为开发地址用于测试
 # REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/v3.6.2-rc"
 
@@ -29,7 +49,7 @@ REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
 TARGET_VERSION=$( (curl -sL -m 5 "${REPO_RAW_URL}/version.txt" || curl -4 -sL -m 5 "${REPO_RAW_URL}/version.txt") 2>/dev/null | grep "^MASTER_VERSION=" | cut -d'=' -f2 | tr -d '[:space:]')
 
 # 🛡️ 兜底防线：如果网络波动拉取失败，启用内置的最新兜底版本
-TARGET_VERSION=${TARGET_VERSION:-"4.0.7"}
+TARGET_VERSION=${TARGET_VERSION:-"4.0.9"}
 
 MASTER_DIR="/opt/ip_sentinel_master"
 DB_FILE="${MASTER_DIR}/sentinel.db"
@@ -51,6 +71,7 @@ if [ "$SILENT_MASTER_OTA" == "true" ]; then
     # 汲取原配置进入内存
     if [ -f "${MASTER_DIR}/master.conf" ]; then
         source "${MASTER_DIR}/master.conf"
+        normalize_repo_urls
         
         # 同步新版本号至配置文件
         if grep -q "^MASTER_VERSION=" "${MASTER_DIR}/master.conf"; then
@@ -94,6 +115,7 @@ else
             fi
             
             source "${MASTER_DIR}/master.conf"
+            normalize_repo_urls
             
             if grep -q "^MASTER_VERSION=" "${MASTER_DIR}/master.conf"; then
                 sed -i "s/^MASTER_VERSION=.*/MASTER_VERSION=\"$TARGET_VERSION\"/" "${MASTER_DIR}/master.conf"
@@ -228,9 +250,11 @@ if [ "$UPGRADE_MODE" == "false" ]; then
     cat > "${MASTER_DIR}/master.conf" << EOF
 # IP-Sentinel Master 本地固化配置 (v${TARGET_VERSION})
 MASTER_VERSION="$TARGET_VERSION"
-TG_TOKEN="$TG_TOKEN"
-DB_FILE="$DB_FILE"
-MASTER_DIR="$MASTER_DIR"
+    REPO_RAW_URL="$REPO_RAW_URL"
+    REPO_WEB_URL="$REPO_WEB_URL"
+    TG_TOKEN="$TG_TOKEN"
+    DB_FILE="$DB_FILE"
+    MASTER_DIR="$MASTER_DIR"
 # [v3.6.0 核心] 官方网关 UI 熔断标识
 IS_OFFICIAL_GATEWAY="$IS_OFFICIAL_GATEWAY"
 # [v3.6.1 新增] 司令部自身 OTA 授权标识
@@ -245,6 +269,16 @@ if [ "$UPGRADE_MODE" == "true" ]; then
     fi
     if ! grep -q "^ENABLE_MASTER_OTA=" "${MASTER_DIR}/master.conf"; then
         echo "ENABLE_MASTER_OTA=\"false\"" >> "${MASTER_DIR}/master.conf"
+    fi
+    if grep -q "^REPO_RAW_URL=" "${MASTER_DIR}/master.conf"; then
+        sed -i "s#^REPO_RAW_URL=.*#REPO_RAW_URL=\"$REPO_RAW_URL\"#" "${MASTER_DIR}/master.conf"
+    else
+        echo "REPO_RAW_URL=\"$REPO_RAW_URL\"" >> "${MASTER_DIR}/master.conf"
+    fi
+    if grep -q "^REPO_WEB_URL=" "${MASTER_DIR}/master.conf"; then
+        sed -i "s#^REPO_WEB_URL=.*#REPO_WEB_URL=\"$REPO_WEB_URL\"#" "${MASTER_DIR}/master.conf"
+    else
+        echo "REPO_WEB_URL=\"$REPO_WEB_URL\"" >> "${MASTER_DIR}/master.conf"
     fi
 fi
 # 🛑 拦截块结束
@@ -390,5 +424,5 @@ fi
 echo -e "\n========================================================"
 echo -e "⭐ \033[33m开源不易，如果 IP-Sentinel 极大简化了您的多节点管理，请赐予我们一枚星标！\033[0m"
 echo -e "💡 \033[32m您的每一颗 Star 都是我们持续迭代架构、开发 Web 视窗化控制台的动力源泉。\033[0m"
-echo -e "👉 \033[36m\033[4m\033]8;;https://github.com/hotyue/IP-Sentinel\033\\点击此处直达 GitHub 仓库点亮 Star 🌟\033[0m\033]8;;\033\\"
+echo -e "👉 \033[36m\033[4m\033]8;;${REPO_WEB_URL}\033\\点击此处直达 GitHub 仓库点亮 Star 🌟\033[0m\033]8;;\033\\"
 echo -e "========================================================\n"

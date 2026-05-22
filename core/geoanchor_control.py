@@ -149,8 +149,8 @@ def reason_message(reason: str) -> str:
     return REASON_MESSAGES.get(reason, reason or "状态机拒绝执行。")
 
 
-def format_status_text(state: dict[str, Any], preflight: dict[str, Any] | None) -> str:
-    next_action = next_action_payload(state)
+def format_status_text(state: dict[str, Any], config: dict[str, str], preflight: dict[str, Any] | None) -> str:
+    next_action = next_action_payload(state, config)
     lines = [
         "📍 *GeoAnchor 当前状态*",
         f"状态: {state.get('current_state', 'UNKNOWN')}",
@@ -215,9 +215,9 @@ def launch_background(command: list[str]) -> None:
 
 def cmd_status(_: argparse.Namespace) -> int:
     config_path, install_dir = resolve_paths()
-    state, _, _ = load_state(config_path, install_dir)
+    state, config, _ = load_state(config_path, install_dir)
     preflight = load_json_file(install_dir / "state" / "preflight-last.json")
-    message = format_status_text(state, preflight)
+    message = format_status_text(state, config, preflight)
     write_manual_log(install_dir, "status", True, "Queried GeoAnchor status.")
     print(message)
     return 0
@@ -277,7 +277,7 @@ def cmd_probe(_: argparse.Namespace) -> int:
             f"GeoScore: {int(payload.get('score', 0) or 0)}",
             f"识别国家: {payload.get('detected_country') or 'UNKNOWN'}",
             f"状态: {state.get('current_state', 'UNKNOWN')}",
-            f"下一动作: {next_action_payload(state).get('action', 'probe_only')}",
+            f"下一动作: {next_action_payload(state, config).get('action', 'probe_only')}",
         ]
     )
     write_manual_log(install_dir, "probe", code == 0, message, payload)
