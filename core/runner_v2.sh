@@ -43,7 +43,11 @@ done
 
 exec 201>"/tmp/ip_sentinel_geoanchor_v2.lock"
 if ! flock -n 201; then
-    echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] runner_v2 lock busy, skipping" >> "$RUNNER_V2_LOG"
+    LOCK_LINE="[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] runner_v2 lock busy, skipping"
+    echo "$LOCK_LINE" >> "$RUNNER_V2_LOG"
+    if [ -n "${LOG_FILE:-}" ]; then
+        echo "$LOCK_LINE" >> "$LOG_FILE"
+    fi
     exit 0
 fi
 
@@ -106,6 +110,12 @@ run_action() {
             action_status=$?
             set -e
             ;;
+        google_patrol)
+            set +e
+            action_output=$(bash "${INSTALL_DIR}/core/mod_google.sh" 2>&1)
+            action_status=$?
+            set -e
+            ;;
         probe_only|cooldown|idle)
             jq -n --arg action "$action" '{ok: true, skipped: true, action: $action}'
             return 0
@@ -118,6 +128,11 @@ run_action() {
 
     if printf '%s' "$action_output" | jq -e . >/dev/null 2>&1; then
         printf '%s' "$action_output"
+    elif [ "$action_status" -eq 0 ]; then
+        jq -n \
+            --arg action "$action" \
+            --arg output "$action_output" \
+            '{ok: true, action: $action, output: $output}'
     else
         jq -n \
             --arg action "$action" \
@@ -187,7 +202,7 @@ fi
 log "INFO " "状态机给出的下一步动作: ${ACTION_NAME}"
 ACTION_RESULT_JSON=$(run_action "$ACTION_NAME")
 
-if [ "$ACTION_NAME" = "anchor_browser" ] || [ "$ACTION_NAME" = "local_trust" ] || [ "$ACTION_NAME" = "probe_only" ]; then
+if [ "$ACTION_NAME" = "anchor_browser" ] || [ "$ACTION_NAME" = "local_trust" ] || [ "$ACTION_NAME" = "google_patrol" ] || [ "$ACTION_NAME" = "probe_only" ]; then
     PROBE_AFTER_JSON=$(bash "${INSTALL_DIR}/core/mod_probe.sh" --json)
     printf '%s\n' "$PROBE_AFTER_JSON" > "$PROBE_AFTER_FILE"
     "$PYTHON_BIN" "${INSTALL_DIR}/core/mod_state.py" update-from-probe "$PROBE_AFTER_FILE" >/dev/null

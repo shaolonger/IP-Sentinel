@@ -13,6 +13,11 @@ LOG_FILE="${INSTALL_DIR}/logs/sentinel.log"
 if [ ! -f "$CONFIG_FILE" ]; then exit 1; fi
 source "$CONFIG_FILE"
 
+DEFAULT_REPO_RAW_URL="https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+LEGACY_REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+REPO_RAW_URL="${REPO_RAW_URL:-$DEFAULT_REPO_RAW_URL}"
+[ "$REPO_RAW_URL" = "$LEGACY_REPO_RAW_URL" ] && REPO_RAW_URL="$DEFAULT_REPO_RAW_URL"
+
 if [ -z "$TG_TOKEN" ] || [ -z "$CHAT_ID" ]; then
     echo "⚠️ 未配置 Telegram 机器人参数，取消播报。"
     exit 0
@@ -201,7 +206,6 @@ LOCAL_VER="${AGENT_VERSION:-未知}"
 REPORT_UTC_TIME=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
 
 # 极轻量级探针: 抓取 GitHub 云端的 version.txt (超时 3 秒，KV解析法)
-REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
 REMOTE_VER=$(curl -s -m 3 "${REPO_RAW_URL}/version.txt" | grep "^AGENT_VERSION=" | cut -d'=' -f2 | tr -d '[:space:]')
 
 # 构建底部引擎状态块

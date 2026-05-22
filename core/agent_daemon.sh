@@ -116,6 +116,64 @@ def load_runtime_config():
                     config[key] = value.strip('"\'')
     return config
 
+def load_json_file(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as handle:
+            return json.load(handle)
+    except Exception:
+        return None
+
+def tail_log_lines(path, limit):
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as handle:
+            lines = [line.rstrip('\r\n') for line in handle.readlines() if line.strip()]
+    except Exception:
+        return []
+    return lines[-limit:]
+
+def build_log_snapshot():
+    state_dir = os.path.join(INSTALL_DIR, 'state')
+    log_dir = os.path.join(INSTALL_DIR, 'logs')
+    sections = []
+
+    geo_state = load_json_file(os.path.join(state_dir, 'geo_state.json'))
+    if geo_state:
+        runtime_lines = [
+            f"state={geo_state.get('current_state', 'UNKNOWN')}",
+            f"score={geo_state.get('last_score', 0)}",
+            f"detected={geo_state.get('last_detected_country') or 'UNKNOWN'}",
+            f"last_probe={geo_state.get('last_probe_at') or '暂无'}",
+        ]
+        if geo_state.get('cooldown_until'):
+            runtime_lines.append(f"cooldown_until={geo_state.get('cooldown_until')}")
+        sections.append("===== runtime =====\n" + "\n".join(runtime_lines))
+
+    bot_risk = load_json_file(os.path.join(state_dir, 'bot_risk.json'))
+    if bot_risk and bot_risk.get('active'):
+        sections.append(
+            "===== bot_risk =====\n"
+            f"active=true\nreason={bot_risk.get('reason', 'unknown')}\nexpires_at={bot_risk.get('expires_at', 'unknown')}"
+        )
+
+    for label, file_name, limit in (
+        ('sentinel.log', 'sentinel.log', 10),
+        ('runner_v2.log', 'runner_v2.log', 10),
+        ('probe.log', 'probe.log', 6),
+    ):
+        lines = tail_log_lines(os.path.join(log_dir, file_name), limit)
+        if lines:
+            sections.append(f"===== {label} =====\n" + "\n".join(lines))
+
+    if not sections:
+        return "日志文件不存在或为空"
+
+    snapshot = "\n\n".join(sections)
+    return snapshot[-3500:]
+
 def geoanchor_python_bin(config):
     venv_root = config.get('GEOANCHOR_VENV', '')
     if venv_root:
@@ -297,13 +355,7 @@ class AgentHandler(http.server.BaseHTTPRequestHandler):
                                 key, val = line.split('=', 1)
                                 config[key] = val.strip('"\'')
                 
-                log_data = "日志文件不存在或为空"
-                log_path = '/opt/ip_sentinel/logs/sentinel.log'
-                if os.path.exists(log_path):
-                    with open(log_path, 'r', errors='ignore') as f:
-                        lines = f.readlines()
-                        if lines:
-                            log_data = html.escape("".join(lines[-15:]))
+                log_data = html.escape(build_log_snapshot())
                 
                 # [v3.5.2 核心] 获取版本与节点展示别名
                 local_ver = config.get('AGENT_VERSION', '未知')
@@ -494,14 +546,11 @@ class AgentHandler(http.server.BaseHTTPRequestHandler):
                 # [修复] 逃逸 Systemd Cgroup，并引入 bash -n 语法树校验防砖机制
                 import shutil
                 import base64
-                # 动态提取部署时的源地址，废除强制写死 main 分支，保障隔离测试环境
-                repo_url = "https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
-                if os.path.exists('/opt/ip_sentinel/core/install.sh'):
-                    with open('/opt/ip_sentinel/core/install.sh', 'r') as f:
-                        for line in f:
-                            if line.startswith('REPO_RAW_URL='):
-                                repo_url = line.split('=', 1)[1].strip('"\'')
-                                break
+                default_repo_url = "https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+                legacy_repo_url = "https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+                repo_url = config_mem.get('REPO_RAW_URL', default_repo_url) or default_repo_url
+                if repo_url == legacy_repo_url:
+                    repo_url = default_repo_url
                 
                 # 动态构建报错回执文本 (第一层 Base64 隔离换行与特殊字符)
                 err_msg = f"❌ **OTA 熔断告警**\n📍 节点: `{config_mem.get('NODE_ALIAS', '未知')}`\n⚠️ 原因: 脚本语法校验(bash -n)未通过，下载可能不完整。\n🚀 状态: 升级已取消，节点安全。"

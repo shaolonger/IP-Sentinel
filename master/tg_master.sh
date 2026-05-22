@@ -10,11 +10,18 @@ CONF="/opt/ip_sentinel_master/master.conf"
 source "$CONF"
 
 # [核心: 运行态版本继承与云通信地址]
-REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+DEFAULT_REPO_RAW_URL="https://raw.githubusercontent.com/shaolonger/IP-Sentinel/main"
+DEFAULT_REPO_WEB_URL="https://github.com/shaolonger/IP-Sentinel"
+LEGACY_REPO_RAW_URL="https://raw.githubusercontent.com/hotyue/IP-Sentinel/main"
+LEGACY_REPO_WEB_URL="https://github.com/hotyue/IP-Sentinel"
+REPO_RAW_URL="${REPO_RAW_URL:-$DEFAULT_REPO_RAW_URL}"
+REPO_WEB_URL="${REPO_WEB_URL:-$DEFAULT_REPO_WEB_URL}"
+[ "$REPO_RAW_URL" = "$LEGACY_REPO_RAW_URL" ] && REPO_RAW_URL="$DEFAULT_REPO_RAW_URL"
+[ "$REPO_WEB_URL" = "$LEGACY_REPO_WEB_URL" ] && REPO_WEB_URL="$DEFAULT_REPO_WEB_URL"
 
 # MASTER_VERSION 已经在上方的 source "$CONF" 中被载入
 # 如果本地极度陈旧没有该变量，才给定一个基础兜底值，避免变量为空导致崩溃
-MASTER_VERSION=${MASTER_VERSION:-"3.5.0"}
+MASTER_VERSION=${MASTER_VERSION:-"4.0.9"}
 
 OFFSET_FILE="${MASTER_DIR}/.tg_offset"
 [[ -f $OFFSET_FILE ]] || echo "0" > $OFFSET_FILE
@@ -309,9 +316,9 @@ while true; do
 
                     # L0 扁平化重构：升级按钮置顶，底部追加带有 url 属性的 GitHub 引流按钮
                     if [ "$IS_OFFICIAL_GATEWAY" != "true" ]; then
-                        BTNS="[${BTN_MASTER_OTA}[{\"text\":\"🌍 进入全球雷达 (管理节点)\",\"callback_data\":\"list_nodes\"}], [{\"text\":\"🚀 唤醒全局巡逻\",\"callback_data\":\"all_run\"}, {\"text\":\"📊 获取全局简报\",\"callback_data\":\"all_reports\"}], [{\"text\":\"🔄 全网节点 OTA 热重载\",\"callback_data\":\"all_ota_confirm\"}], [{\"text\":\"🌟 前往 GitHub 点亮星标\",\"url\":\"https://github.com/hotyue/IP-Sentinel\"}]]"
+                        BTNS="[${BTN_MASTER_OTA}[{\"text\":\"🌍 进入全球雷达 (管理节点)\",\"callback_data\":\"list_nodes\"}], [{\"text\":\"🚀 唤醒全局巡逻\",\"callback_data\":\"all_run\"}, {\"text\":\"📊 获取全局简报\",\"callback_data\":\"all_reports\"}], [{\"text\":\"🔄 全网节点 OTA 热重载\",\"callback_data\":\"all_ota_confirm\"}], [{\"text\":\"🌟 前往 GitHub 点亮星标\",\"url\":\"${REPO_WEB_URL}\"}]]"
                     else
-                        BTNS="[[{\"text\":\"🌍 进入全球雷达 (管理节点)\",\"callback_data\":\"list_nodes\"}], [{\"text\":\"🚀 唤醒全局巡逻\",\"callback_data\":\"all_run\"}, {\"text\":\"📊 获取全局简报\",\"callback_data\":\"all_reports\"}], [{\"text\":\"🌟 前往 GitHub 点亮星标\",\"url\":\"https://github.com/hotyue/IP-Sentinel\"}]]"
+                        BTNS="[[{\"text\":\"🌍 进入全球雷达 (管理节点)\",\"callback_data\":\"list_nodes\"}], [{\"text\":\"🚀 唤醒全局巡逻\",\"callback_data\":\"all_run\"}, {\"text\":\"📊 获取全局简报\",\"callback_data\":\"all_reports\"}], [{\"text\":\"🌟 前往 GitHub 点亮星标\",\"url\":\"${REPO_WEB_URL}\"}]]"
                     fi
                     TEXT_MSG="🛡️ **IP-Sentinel 控制中枢**\n${VER_INFO}\n\n📊 节点状态: 共有 \`${NODE_COUNT}\` 台节点在线\n欢迎回来，管理者。请下达系统指令："
                     send_ui "$CHAT_ID" "$TEXT_MSG" "$BTNS"

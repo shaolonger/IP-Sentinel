@@ -28,9 +28,9 @@ POLICIES = {
     "CN_LOCKED": {"anchor": 6, "search": 2, "trust": 2},
     "HK_DRIFT": {"anchor": 4, "search": 1, "trust": 2},
     "OTHER_DRIFT": {"anchor": 3, "search": 1, "trust": 1},
-    "PARTIAL": {"anchor": 2, "search": 0, "trust": 0},
-    "TARGET": {"anchor": 1, "search": 0, "trust": 1},
-    "STABLE": {"anchor": 1, "search": 0, "trust": 0},
+    "PARTIAL": {"anchor": 2, "search": 1, "trust": 0},
+    "TARGET": {"anchor": 1, "search": 1, "trust": 1},
+    "STABLE": {"anchor": 1, "search": 1, "trust": 0},
     "BOT_RISK": {"anchor": 0, "search": 0, "trust": 0},
     "DNS_RISK": {"anchor": 0, "search": 0, "trust": 0},
     "DISABLED": {"anchor": 0, "search": 0, "trust": 0},
@@ -151,6 +151,15 @@ def consume_action(state: dict[str, Any], action: str, count: int = 1) -> dict[s
     return counter
 
 
+def config_flag(config: dict[str, str] | None, key: str, default: bool = True) -> bool:
+    if not config:
+        return default
+    value = config.get(key)
+    if value is None or value == "":
+        return default
+    return value.lower() == "true"
+
+
 def is_cooldown_active(state: dict[str, Any]) -> bool:
     cooldown_until = state.get("cooldown_until")
     if not cooldown_until:
@@ -219,8 +228,11 @@ def update_from_probe(state: dict[str, Any], probe: dict[str, Any]) -> dict[str,
     return state
 
 
-def next_action_payload(state: dict[str, Any]) -> dict[str, Any]:
+def next_action_payload(state: dict[str, Any], config: dict[str, str] | None = None) -> dict[str, Any]:
     current_state = state.get("current_state", "UNKNOWN")
+    google_enabled = config_flag(config, "ENABLE_GOOGLE", True)
+    trust_enabled = config_flag(config, "ENABLE_TRUST", True)
+    anchor_enabled = config_flag(config, "ENABLE_GEOANCHOR_BROWSER", True)
     if current_state == "DISABLED":
         return {"action": "idle", "reason": "state_disabled"}
     if is_cooldown_active(state) or current_state == "BOT_RISK":
@@ -229,23 +241,35 @@ def next_action_payload(state: dict[str, Any]) -> dict[str, Any]:
         return {"action": "probe_only", "reason": "preflight_or_probe_insufficient"}
 
     if current_state in {"CN_LOCKED", "HK_DRIFT", "OTHER_DRIFT"}:
-        if can_run_action(state, "anchor"):
+        if google_enabled and can_run_action(state, "search"):
+            return {"action": "google_patrol", "reason": "recovery_google_budget_available"}
+        if anchor_enabled and can_run_action(state, "anchor"):
             return {"action": "anchor_browser", "reason": "recovery_anchor_budget_available"}
-        if can_run_action(state, "trust"):
+        if trust_enabled and can_run_action(state, "trust"):
             return {"action": "local_trust", "reason": "fallback_trust_budget_available"}
         return {"action": "probe_only", "reason": "recovery_budget_exhausted"}
 
     if current_state == "PARTIAL":
-        if can_run_action(state, "anchor"):
+        if google_enabled and can_run_action(state, "search"):
+            return {"action": "google_patrol", "reason": "partial_google_budget_available"}
+        if anchor_enabled and can_run_action(state, "anchor"):
             return {"action": "anchor_browser", "reason": "partial_recovery_anchor_budget_available"}
         return {"action": "probe_only", "reason": "partial_recovery_probe_only"}
 
     if current_state == "TARGET":
-        if can_run_action(state, "anchor"):
+        if google_enabled and can_run_action(state, "search"):
+            return {"action": "google_patrol", "reason": "maintenance_google_budget_available"}
+        if anchor_enabled and can_run_action(state, "anchor"):
             return {"action": "anchor_browser", "reason": "maintenance_anchor_budget_available"}
+        if trust_enabled and can_run_action(state, "trust"):
+            return {"action": "local_trust", "reason": "maintenance_trust_budget_available"}
         return {"action": "probe_only", "reason": "target_monitoring"}
 
     if current_state == "STABLE":
+        if google_enabled and can_run_action(state, "search"):
+            return {"action": "google_patrol", "reason": "stable_google_budget_available"}
+        if anchor_enabled and can_run_action(state, "anchor"):
+            return {"action": "anchor_browser", "reason": "stable_anchor_budget_available"}
         return {"action": "probe_only", "reason": "stable_monitoring"}
 
     return {"action": "probe_only", "reason": "default_probe_only"}
@@ -291,8 +315,8 @@ def cmd_update_from_probe(args: argparse.Namespace) -> int:
 
 def cmd_next_action(args: argparse.Namespace) -> int:
     config_path, install_dir = resolve_paths()
-    state, _, _ = load_state(config_path, install_dir)
-    payload = next_action_payload(state)
+    state, config, _ = load_state(config_path, install_dir)
+    payload = next_action_payload(state, config)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
